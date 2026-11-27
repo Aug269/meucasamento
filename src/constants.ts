@@ -14,4 +14,4 @@ export const PRECOMPILED_MIND_PATHS = [
 export const TEST_TARGET_IMAGE_PATH = '/targets/teste-casal.jpg';
 export const TARGET_CACHE_DB = 'nossa-historia-mind-cache';
 export const TARGET_CACHE_STORE = 'compiled-targets';
-export const TARGET_CACHE_KEY = 'teste-casal-v1';
+export const TARGET_CACHE_KEY = 'teste-casal-v2';

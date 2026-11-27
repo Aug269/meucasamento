@@ -381,11 +381,7 @@ textarea:focus-visible {
 }
 
 .ar-scene-container video {
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
+  position: absolute;
   z-index: 1 !important;
 }
 

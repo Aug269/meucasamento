@@ -216,12 +216,19 @@ export function ARExperience({
       if (!isMountedRef.current || seq !== bootstrapSeqRef.current) return;
 
       if (!camResult.ok) {
+        console.error('[ARExperience] Falha na verificação de câmera:', camResult.error);
         setCameraError(camResult.error);
         setTrackingStatus('error');
         return;
       }
 
+      console.info('[ARExperience] Permissão de câmera confirmada; aguardando driver liberar stream...');
+      // Pequena pausa para drivers de webcam desktop liberarem o dispositivo antes do MindAR reabrir
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      if (!isMountedRef.current || seq !== bootstrapSeqRef.current) return;
+
       if (!window.AFRAME || !window.MINDAR?.IMAGE) {
+        console.error('[ARExperience] window.AFRAME ou window.MINDAR.IMAGE ausente');
         setCameraError({
           code: 'MINDAR_ERROR',
           title: 'Motor de AR indisponível',
@@ -237,6 +244,7 @@ export function ARExperience({
 
       try {
         setTrackingStatus('preparing-target');
+        console.info('[ARExperience] Resolvendo alvo MindAR (.mind)...');
         const resolved =
           customTarget ??
           (await resolveExperienceMindTarget(
@@ -254,10 +262,17 @@ export function ARExperience({
           ));
 
         if (!isMountedRef.current || seq !== bootstrapSeqRef.current) return;
+        console.info('[ARExperience] Alvo pronto:', {
+          origin: resolved.origin,
+          label: resolved.label,
+          aspectRatio: resolved.aspectRatio,
+          mindUrl: resolved.mindUrl,
+        });
         setTargetSource(resolved);
         setSceneKey((k) => k + 1);
       } catch (err) {
         if (!isMountedRef.current || seq !== bootstrapSeqRef.current) return;
+        console.error('[ARExperience] Erro ao preparar alvo de rastreamento:', err);
         setCameraError({
           code: 'MINDAR_ERROR',
           title: 'Falha ao preparar imagem de referência',
@@ -286,29 +301,56 @@ export function ARExperience({
     };
   }, [bootstrapAR, stopActiveAR]);
 
-  // Listeners reais do MindAR (arReady, arError, targetFound, targetLost)
+  // Listeners reais do MindAR (arReady, arError, targetFound, targetLost) + start controlado após renderstart
   useEffect(() => {
     if (!targetSource) return;
-    const sceneEl = sceneRef.current;
+    const sceneEl = sceneRef.current as
+      | (HTMLElement & {
+          hasLoaded?: boolean;
+          renderStarted?: boolean;
+          systems?: Record<string, unknown>;
+        })
+      | null;
     const targetEl = targetRef.current;
-    if (!sceneEl || !targetEl) return;
+    if (!sceneEl || !targetEl) {
+      console.warn('[ARExperience] sceneEl ou targetEl ausente após targetSource pronto');
+      return;
+    }
+
+    let cancelled = false;
+    let started = false;
 
     const handleArReady = () => {
+      if (cancelled) return;
+      console.info('[ARExperience] Evento arReady recebido — câmera e rastreamento ativos.');
       setTrackingStatus((prev) => (prev === 'found' ? 'found' : 'scanning'));
     };
 
-    const handleArError = () => {
+    const handleArError = (ev: Event) => {
+      if (cancelled) return;
+      const detail = (ev as CustomEvent<{error?: string; reason?: string; detail?: unknown}>)
+        .detail;
+      console.error('[ARExperience] Evento arError do MindAR:', detail);
+
+      const isVideoFail = detail?.error === 'VIDEO_FAIL';
       setCameraError({
         code: 'MINDAR_ERROR',
-        title: 'Erro ao iniciar o rastreamento AR',
-        message:
-          'O MindAR não conseguiu inicializar a câmera ou o contexto WebGL neste dispositivo.',
-        tip: 'Feche outras abas com câmera aberta e toque em "Tentar novamente".',
+        title: isVideoFail
+          ? 'Não foi possível abrir a câmera no MindAR'
+          : 'Erro ao iniciar o rastreamento AR',
+        message: isVideoFail
+          ? 'A webcam ou câmera do navegador não pôde ser iniciada pelo motor de AR (pode estar em uso ou restrita).'
+          : 'O MindAR não conseguiu inicializar o rastreamento WebGL ou processar o arquivo .mind neste navegador.',
+        tip: isVideoFail
+          ? 'Feche outras abas/aplicativos usando a câmera, verifique a permissão no navegador e toque em "Tentar novamente".'
+          : 'Tente recarregar a página, verifique o console do navegador ou teste no Chrome/Safari com aceleração WebGL ativa.',
       });
       setTrackingStatus('error');
     };
 
     const handleTargetFound = () => {
+      if (cancelled) return;
+      console.info('[ARExperience] Evento targetFound — imagem de referência reconhecida!');
       hasFoundOnceRef.current = true;
       setHasFoundOnce(true);
       setTrackingStatus('found');
@@ -316,9 +358,39 @@ export function ARExperience({
     };
 
     const handleTargetLost = () => {
+      if (cancelled) return;
+      console.info('[ARExperience] Evento targetLost — alvo saiu do enquadramento.');
       stopMediaElements();
       setVideoState((prev) => (prev === 'ended' ? 'ended' : 'paused'));
       setTrackingStatus(hasFoundOnceRef.current ? 'lost' : 'scanning');
+    };
+
+    const startMindarAfterListeners = () => {
+      if (cancelled || started) return;
+      started = true;
+      const system = sceneEl.systems?.['mindar-image-system'] as
+        | {start?: () => void}
+        | undefined;
+      console.info('[ARExperience] Cena A-Frame pronta (renderstart); iniciando mindar-image-system...', {
+        hasLoaded: Boolean(sceneEl.hasLoaded),
+        renderStarted: Boolean(sceneEl.renderStarted),
+        hasSystem: Boolean(system),
+      });
+      if (system && typeof system.start === 'function') {
+        setPrepProgress(95);
+        setPrepStage('Iniciando câmera e rastreamento AR...');
+        system.start();
+      } else {
+        console.error('[ARExperience] mindar-image-system não encontrado na cena A-Frame');
+        setCameraError({
+          code: 'MINDAR_ERROR',
+          title: 'Sistema MindAR não inicializado',
+          message:
+            'A cena A-Frame carregou sem o sistema mindar-image-system ativo.',
+          tip: 'Recarregue a página e tente novamente.',
+        });
+        setTrackingStatus('error');
+      }
     };
 
     sceneEl.addEventListener('arReady', handleArReady);
@@ -326,7 +398,16 @@ export function ARExperience({
     targetEl.addEventListener('targetFound', handleTargetFound);
     targetEl.addEventListener('targetLost', handleTargetLost);
 
+    if (sceneEl.renderStarted) {
+      startMindarAfterListeners();
+    } else {
+      console.info('[ARExperience] Aguardando evento renderstart da cena A-Frame...');
+      sceneEl.addEventListener('renderstart', startMindarAfterListeners, {once: true});
+    }
+
     return () => {
+      cancelled = true;
+      sceneEl.removeEventListener('renderstart', startMindarAfterListeners);
       sceneEl.removeEventListener('arReady', handleArReady);
       sceneEl.removeEventListener('arError', handleArError);
       targetEl.removeEventListener('targetFound', handleTargetFound);
@@ -345,16 +426,25 @@ export function ARExperience({
   const handleVideoLoadedMetadata = () => {
     const v = videoRef.current;
     if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+      console.info(
+        `[ARExperience] Vídeo AR carregado (${v.videoWidth}x${v.videoHeight}, ${v.duration.toFixed(1)}s)`
+      );
       setVideoAspect(v.videoHeight / v.videoWidth);
     }
   };
 
+  const handleVideoPlay = () => {
+    console.info('[ARExperience] Vídeo AR em reprodução');
+  };
+
   const handleVideoEnded = () => {
+    console.info('[ARExperience] Vídeo AR finalizado');
     setVideoState('ended');
     bgAudioRef.current?.pause();
   };
 
-  const handleVideoError = () => {
+  const handleVideoError = (ev: React.SyntheticEvent<HTMLVideoElement>) => {
+    console.error('[ARExperience] Erro no elemento <video> de AR:', ev.currentTarget.error);
     setVideoState('error');
   };
 
@@ -538,8 +628,8 @@ export function ARExperience({
         src={content.videoUrl}
         playsInline
         preload="auto"
-        crossOrigin="anonymous"
         onLoadedMetadata={handleVideoLoadedMetadata}
+        onPlay={handleVideoPlay}
         onEnded={handleVideoEnded}
         onError={handleVideoError}
         className="ar-hidden-video"
@@ -560,7 +650,7 @@ export function ARExperience({
           <a-scene
             key={sceneKey}
             ref={sceneRef}
-            mindar-image={`imageTargetSrc: ${targetSource.mindUrl}; autoStart: true; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 6; warmupTolerance: 3;`}
+            mindar-image={`imageTargetSrc: ${targetSource.mindUrl}; autoStart: false; uiLoading: no; uiScanning: no; uiError: no; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 6; warmupTolerance: 3;`}
             color-space="sRGB"
             renderer="colorManagement: true; physicallyCorrectLights: true; alpha: true;"
             vr-mode-ui="enabled: false"
@@ -660,6 +750,15 @@ export function ARExperience({
                 >
                   <RefreshCw size={18} strokeWidth={1.8} />
                   <span>Tentar novamente</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowTargetDrawer(true)}
+                  className="btn-secondary-romantic"
+                >
+                  <Target size={18} strokeWidth={1.7} />
+                  <span>Ver imagem de teste</span>
                 </button>
 
                 <button

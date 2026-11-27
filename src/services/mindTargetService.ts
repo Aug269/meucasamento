@@ -76,21 +76,54 @@ async function checkPrecompiledMindUrl(path: string): Promise<boolean> {
   }
 }
 
+function isCrossOriginUrl(src: string): boolean {
+  if (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('/')) {
+    return false;
+  }
+  try {
+    const parsed = new URL(src, window.location.href);
+    return parsed.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export function loadHtmlImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () =>
+    if (isCrossOriginUrl(src)) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = async () => {
+      try {
+        if (typeof img.decode === 'function') {
+          await img.decode();
+        }
+      } catch {
+        // Ignora caso decode() não seja suportado após onload
+      }
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        img.width = img.naturalWidth;
+        img.height = img.naturalHeight;
+      }
+      console.info(
+        `[MindAR Target] Imagem carregada: ${img.width}x${img.height}`,
+        src.slice(0, 80)
+      );
+      resolve(img);
+    };
+    img.onerror = (ev) => {
+      console.error('[MindAR Target] Erro ao carregar imagem:', src, ev);
       reject(new Error(`Não foi possível carregar a imagem de referência: ${src}`));
+    };
     img.src = src;
   });
 }
 
-function downscaleForMindCompilation(
+async function downscaleForMindCompilation(
   img: HTMLImageElement,
   maxDim = 900
-): HTMLImageElement {
+): Promise<HTMLImageElement> {
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;
   const longest = Math.max(w, h);
@@ -102,11 +135,8 @@ function downscaleForMindCompilation(
   const ctx = canvas.getContext('2d');
   if (!ctx) return img;
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const resized = new Image();
-  resized.width = canvas.width;
-  resized.height = canvas.height;
-  resized.src = canvas.toDataURL('image/jpeg', 0.92);
-  return resized;
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+  return loadHtmlImage(dataUrl);
 }
 
 export async function compileImageUrlToMindBytes(
@@ -120,16 +150,15 @@ export async function compileImageUrlToMindBytes(
     );
   }
 
+  console.info('[MindAR Target] Iniciando compilação da imagem para .mind...');
   const rawImg = await loadHtmlImage(imageUrl);
   const aspectRatio =
     (rawImg.naturalHeight || rawImg.height) /
     Math.max(1, rawImg.naturalWidth || rawImg.width);
-  const preparedImg = downscaleForMindCompilation(rawImg);
-  if (!preparedImg.complete) {
-    await new Promise<void>((resolve) => {
-      preparedImg.onload = () => resolve();
-      preparedImg.onerror = () => resolve();
-    });
+  const preparedImg = await downscaleForMindCompilation(rawImg);
+
+  if (!preparedImg.width || !preparedImg.height) {
+    throw new Error('A imagem de referência carregou com dimensões inválidas (0x0).');
   }
 
   const compiler = new CompilerCtor();
@@ -139,6 +168,9 @@ export async function compileImageUrlToMindBytes(
   const exported = await compiler.exportData();
   const bytes =
     exported instanceof Uint8Array ? exported : new Uint8Array(exported);
+  console.info(
+    `[MindAR Target] Compilação .mind concluída (${bytes.byteLength} bytes)`
+  );
   return {bytes, aspectRatio};
 }
 
@@ -159,7 +191,7 @@ export async function measureImageAspect(imageUrl: string): Promise<number> {
  * 1) Se o usuário escolheu um arquivo .mind local, usa diretamente.
  * 2) Se escolheu uma foto local, compila em tempo real via MindAR.
  * 3) Caso contrário, verifica arquivos pré-compilados (/targets/casal.mind, /targets/teste-casal.mind).
- * 4) Por fim, compila a imagem de teste padrão (/targets/teste-casal.jpg) e salva no cache IndexedDB.
+ * 4) Por fim, compila a imagem de teste padrão e salva no cache IndexedDB.
  */
 export async function resolveExperienceMindTarget(
   options: {
@@ -204,6 +236,7 @@ export async function resolveExperienceMindTarget(
   for (const path of mindPaths) {
     const exists = await checkPrecompiledMindUrl(path);
     if (exists) {
+      console.info('[MindAR Target] Usando arquivo pré-compilado:', path);
       onProgress?.(100, 'Alvo .mind carregado');
       return {
         mindUrl: path,
@@ -219,7 +252,10 @@ export async function resolveExperienceMindTarget(
   }
 
   const cached = await readCachedMindBytes(TARGET_CACHE_KEY);
-  if (cached && cached.byteLength > 256) {
+  if (cached && cached.byteLength > 1024) {
+    console.info(
+      `[MindAR Target] Alvo recuperado do cache IndexedDB (${cached.byteLength} bytes)`
+    );
     const blobUrl = URL.createObjectURL(
       new Blob([cached.slice()], {type: 'application/octet-stream'})
     );
@@ -241,7 +277,9 @@ export async function resolveExperienceMindTarget(
       'Extraindo pontos da imagem de teste...'
     );
   });
-  await writeCachedMindBytes(TARGET_CACHE_KEY, compiled.bytes);
+  if (compiled.bytes.byteLength > 1024) {
+    await writeCachedMindBytes(TARGET_CACHE_KEY, compiled.bytes);
+  }
 
   const blobUrl = URL.createObjectURL(
     new Blob([compiled.bytes.slice()], {type: 'application/octet-stream'})

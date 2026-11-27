@@ -34,13 +34,24 @@ export function ensureWeddingAframeComponents(): void {
   const AFRAME = window.AFRAME;
   if (!AFRAME || !AFRAME.THREE) return;
 
-  // Protege o MindAR contra erros ao desmontar a cena antes de controller/video inicializarem
+  // Protege e instrumenta o ciclo de vida do MindAR para diagnóstico detalhado e desmontagem segura
   const mindarSystem = AFRAME.systems?.['mindar-image-system'];
   const proto = mindarSystem?.prototype as
     | {
         __safePatched?: boolean;
+        start?: () => void;
+        _startVideo?: () => void;
+        _startAR?: () => Promise<void>;
         pause?: (keepVideo?: boolean) => void;
         stop?: () => void;
+        container?: HTMLElement | null;
+        el?: HTMLElement & {
+          emit: (name: string, detail?: unknown) => void;
+          sceneEl?: HTMLElement | null;
+        };
+        ui?: {showLoading?: () => void; showCompatibility?: () => void};
+        showStats?: boolean;
+        imageTargetSrc?: string;
         video?: HTMLVideoElement | null;
         controller?: {
           stopProcessVideo?: () => void;
@@ -51,6 +62,117 @@ export function ensureWeddingAframeComponents(): void {
 
   if (proto && !proto.__safePatched) {
     proto.__safePatched = true;
+    const origStart = proto.start;
+    const origStartAR = proto._startAR;
+
+    proto.start = function patchedStart() {
+      console.info('[MindAR] Iniciando sistema MindAR...', {
+        imageTargetSrc: this.imageTargetSrc,
+        hasSceneParent: Boolean(this.el?.sceneEl?.parentNode),
+      });
+      return origStart?.apply(this);
+    };
+
+    proto._startVideo = function patchedStartVideo() {
+      console.info('[MindAR] Criando elemento <video> da câmera...');
+      const video = document.createElement('video');
+      video.setAttribute('autoplay', '');
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.muted = true;
+      video.playsInline = true;
+      video.style.position = 'absolute';
+      video.style.top = '0px';
+      video.style.left = '0px';
+      video.style.zIndex = '-2';
+      this.video = video;
+
+      if (!this.container) {
+        this.container = this.el?.sceneEl?.parentNode as HTMLElement | null;
+      }
+      this.container?.appendChild(video);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error('[MindAR] navigator.mediaDevices.getUserMedia indisponível');
+        this.el?.emit('arError', {error: 'VIDEO_FAIL', reason: 'UNSUPPORTED'});
+        this.ui?.showCompatibility?.();
+        return;
+      }
+
+      const openStream = async () => {
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {facingMode: 'environment'},
+          });
+        } catch (firstErr) {
+          console.warn(
+            '[MindAR] Falha ao abrir com facingMode="environment", tentando câmera padrão...',
+            firstErr
+          );
+          return await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: true,
+          });
+        }
+      };
+
+      openStream()
+        .then((stream) => {
+          console.info('[MindAR] Stream da câmera obtido com sucesso');
+          const startArOnce = () => {
+            if (!video.videoWidth || !video.videoHeight) {
+              console.warn('[MindAR] loadedmetadata sem dimensões válidas ainda');
+              return;
+            }
+            video.setAttribute('width', String(video.videoWidth));
+            video.setAttribute('height', String(video.videoHeight));
+            console.info(
+              `[MindAR] Dimensões da câmera: ${video.videoWidth}x${video.videoHeight}`
+            );
+            void video.play().catch((playErr) => {
+              console.warn('[MindAR] Aviso ao dar play() no vídeo da câmera:', playErr);
+            });
+            void this._startAR?.();
+          };
+
+          video.addEventListener('loadedmetadata', startArOnce, {once: true});
+          video.srcObject = stream;
+          if (video.readyState >= 1 && video.videoWidth > 0) {
+            startArOnce();
+          }
+        })
+        .catch((err) => {
+          console.error('[MindAR] Erro ao abrir getUserMedia:', err);
+          this.el?.emit('arError', {error: 'VIDEO_FAIL', detail: err});
+        });
+    };
+
+    proto._startAR = async function patchedStartAR() {
+      try {
+        const container = this.container;
+        const video = this.video;
+        const anchorCount = Array.isArray(
+          (this as {anchorEntities?: unknown[]}).anchorEntities
+        )
+          ? (this as {anchorEntities?: unknown[]}).anchorEntities!.length
+          : 0;
+        console.info('[MindAR] _startAR: inicializando controlador e carregando alvo .mind...', {
+          imageTargetSrc: this.imageTargetSrc,
+          anchorCount,
+          videoSize: video ? `${video.videoWidth}x${video.videoHeight}` : 'none',
+          containerSize: container
+            ? `${container.clientWidth}x${container.clientHeight}`
+            : 'none',
+        });
+        await origStartAR?.apply(this);
+        console.info('[MindAR] _startAR concluído — rastreamento ativo (arReady emitido).');
+      } catch (err) {
+        console.error('[MindAR] Falha crítica dentro de _startAR:', err);
+        this.el?.emit('arError', {error: 'START_AR_FAIL', detail: err});
+      }
+    };
+
     proto.pause = function safePause(keepVideo = false) {
       try {
         if (!keepVideo && this.video && typeof this.video.pause === 'function') {

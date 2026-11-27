@@ -1,3 +1,4 @@
+import testTargetImg from '../assets/images/test_wedding_target_1795781380607.jpg';
 import type {ExperienceContentConfig} from '../types';
 
 /**
@@ -12,7 +13,7 @@ export const DEFAULT_EXPERIENCE_CONTENT: ExperienceContentConfig = {
   instructionsTitle: 'Antes de apontar a câmera',
   instructionsLead:
     'Ao avançar, seu navegador solicitará permissão para usar a câmera traseira. Posicione a fotografia física do casamento em um local bem iluminado e enquadre-a por completo.',
-  targetImageUrl: '/targets/teste-casal.jpg',
+  targetImageUrl: testTargetImg,
   precompiledMindPaths: ['/targets/casal.mind', '/targets/teste-casal.mind'],
   videoUrl: '/media/video-teste.mp4',
   videoLabel: 'Vídeo de teste (Exemplo demonstrativo)',
