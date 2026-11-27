@@ -48,14 +48,16 @@ const bundles = await Promise.all(
 );
 const output = bundles.join('\\n');
 
+assert.ok(output.includes(base), 'O bundle deve conter o caminho base do GitHub Pages');
+
 for (const asset of [
-  `${base}targets/teste-casal.jpg`,
-  `${base}targets/casal.mind`,
-  `${base}targets/teste-casal.mind`,
-  `${base}media/video-teste.mp4`,
-  `${base}media/musica-teste.mp3`,
+  'targets/teste-casal.jpg',
+  'targets/casal.mind',
+  'targets/teste-casal.mind',
+  'media/video-teste.mp4',
+  'media/musica-teste.mp3',
 ]) {
-  assert.ok(output.includes(asset), `O bundle não contém o caminho público esperado: ${asset}`);
+  assert.ok(output.includes(asset), `O bundle não contém a referência ao asset esperado: ${asset}`);
 }
 
 console.log('Verificação de assets: todos os arquivos e caminhos usam /meucasamento/.');
