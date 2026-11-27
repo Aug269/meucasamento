@@ -241,7 +241,7 @@ export async function resolveExperienceMindTarget(
       return {
         mindUrl: path,
         label:
-          path === '/targets/casal.mind'
+          path.endsWith('/targets/casal.mind')
             ? 'Alvo oficial do casal (.mind)'
             : 'Alvo de teste pré-compilado (.mind)',
         origin: 'precompiled-mind',
