@@ -3,7 +3,7 @@ export const APP_SUBTITLE = 'Uma história escrita por dois corações';
 export const AR_LOVE_MESSAGE = 'Nossa história é o meu lugar favorito';
 
 const publicBase = import.meta.env.BASE_URL;
-const publicAsset = (path: string) => `${publicBase}${path.replace(/^\\/+/, '')}`;
+const publicAsset = (path: string) => `${publicBase}${path.replace(/^\/+/, '')}`;
 
 /**
  * Caminhos preparados para o arquivo .mind compilado do casal.
