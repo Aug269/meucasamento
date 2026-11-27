@@ -1,0 +1,8 @@
+{
+  "name": "Nossa História — Um Amor que Ganha Vida",
+  "description": "Experiência interativa de homenagem de casamento em realidade aumentada com MindAR e A-Frame.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": []
+}
