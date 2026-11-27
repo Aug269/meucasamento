@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import {readdir, readFile, stat} from 'node:fs/promises';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-const dist = new URL('../dist/', import.meta.url);
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const base = '/meucasamento/';
 
 async function exists(relativePath) {
   try {
-    await stat(new URL(relativePath, dist));
+    await stat(join(dist, relativePath));
     return true;
   } catch {
     return false;
@@ -37,15 +38,15 @@ for (const file of requiredFiles) {
   assert.equal(await exists(file), true, `Arquivo ausente na publicação: ${file}`);
 }
 
-const html = await readFile(new URL('index.html', dist), 'utf8');
+const html = await readFile(join(dist, 'index.html'), 'utf8');
 assert.ok(html.includes(`${base}vendor/aframe.min.js`), 'A-Frame deve usar o caminho base do GitHub Pages');
 assert.ok(html.includes(`${base}vendor/mindar-image-aframe.prod.js`), 'MindAR deve usar o caminho base do GitHub Pages');
 
-const outputFiles = await collectFiles(new URL('.', dist));
+const outputFiles = await collectFiles(dist);
 const bundles = await Promise.all(
   outputFiles.filter((file) => file.endsWith('.js')).map((file) => readFile(file, 'utf8'))
 );
-const output = bundles.join('\n');
+const output = bundles.join('\\n');
 
 for (const asset of [
   `${base}targets/teste-casal.jpg`,
