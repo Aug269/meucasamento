@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && npm run verify:assets",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "verify:assets": "node scripts/verify-public-assets.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-simd-compat": "^0.19.3",
