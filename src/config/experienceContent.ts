@@ -2,7 +2,7 @@ import testTargetImg from '../assets/images/test_wedding_target_1795781380607.jp
 import type {ExperienceContentConfig} from '../types';
 
 const publicBase = import.meta.env.BASE_URL;
-const publicAsset = (path: string) => `${publicBase}${path.replace(/^\\/+/, '')}`;
+const publicAsset = (path: string) => `${publicBase}${path.replace(/^\/+/, '')}`;
 
 /**
  * Configuração central da experiência "Nossa História — Um Amor que Ganha Vida".
