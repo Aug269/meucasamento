@@ -11,18 +11,18 @@ Inspeção estática inicial de arquivos do fluxo de AR e configuração do proj
 **Prioridade:** alta  
 **Arquivos:** `src/components/ARExperience.tsx`, `src/App.tsx`
 
-Os handlers de upload de imagem e de arquivo `.mind` chamam `onUpdateContent(...)` e também chamam `bootstrapAR(...)` diretamente. A atualização do conteúdo pode alterar as dependências do callback `bootstrapAR`, fazendo o efeito que depende dele executar novamente. Isso pode provocar inicializações concorrentes ou repetidas.
+**Confirmado por inspeção do fluxo de código; reprodução em navegador ainda pendente.** Os handlers de upload de imagem e de arquivo `.mind` chamam `onUpdateContent(...)` e também chamam `bootstrapAR(...)` diretamente. A atualização do conteúdo altera dependências do callback `bootstrapAR` (`customImageFile` e/ou `customMindFile`), fazendo o efeito que depende dele executar novamente. O cleanup do efeito chama `stopActiveAR` e a nova execução chama `bootstrapAR` outra vez. Portanto, a troca de alvo tem dois caminhos de inicialização: o disparo manual e o disparo provocado pela atualização das dependências.
 
-**Verificação necessária:** reproduzir a troca de alvo e contar quantas inicializações são disparadas; verificar cancelamento e descarte da inicialização anterior.
+**Teste de regressão planejado:** renderizar `ARExperience`, simular upload de imagem e upload de `.mind`, e verificar que cada ação produz uma única inicialização efetiva, sem deixar a inicialização anterior ativa. A implementação do teste deve isolar câmera e MindAR por mocks.
 
 ### A-02 — Ciclo de vida de URLs temporárias
 
 **Prioridade:** alta  
 **Arquivos:** `src/components/ARExperience.tsx`, `src/services/mindTargetService.ts`
 
-Há URLs criadas com `URL.createObjectURL` para vídeo, imagem de prévia e arquivos `.mind`. O serviço também cria URLs para alvos compilados e recuperados do IndexedDB. A inspeção inicial não identificou um ciclo de liberação abrangente para substituição de arquivos, troca de alvo e desmontagem do componente.
+**Confirmado por inspeção estática; impacto de memória ainda não medido.** Foram localizadas criações de URLs em `InstructionsScreen.tsx`, `ARExperience.tsx` e `mindTargetService.ts`. Elas cobrem foto de prévia, vídeo, áudio, arquivo `.mind` e alvo compilado. Não foi identificado um ciclo correspondente de `URL.revokeObjectURL` para substituição dos arquivos ou desmontagem dos componentes; a única revogação localizada é a URL temporária usada em `downloadMindBytes`.
 
-**Verificação necessária:** mapear a propriedade de cada URL, garantir revogação apenas quando não estiver mais em uso e criar testes que verifiquem a liberação sem invalidar recursos ativos.
+**Teste de regressão planejado:** mockar `URL.createObjectURL`/`URL.revokeObjectURL` e verificar que recursos substituídos ou descartados são revogados uma única vez, enquanto URLs ainda referenciadas por elementos ativos permanecem válidas. Antes da correção, será necessário definir claramente quem é dono de cada URL para evitar revogação prematura.
 
 ### A-03 — Solicitação prévia da câmera
 
@@ -40,7 +40,7 @@ O serviço solicita a câmera com `getUserMedia` e encerra imediatamente as trac
 
 A função `checkPrecompiledMindUrl` faz uma requisição GET e lê o corpo para validar o arquivo. O MindAR pode realizar outra requisição ao consumir a URL.
 
-**Verificação necessária:** confirmar o comportamento real do MindAR, avaliar cache e evitar downloads duplicados sem enfraquecer a validação.
+**Verificação necessária:** confirmar o comportamento real do MindAR, avaliar cache e evitar downloads duplicados sem enfraquecer a validação. Ainda não há confirmação de que isso gere transferência duplicada em todas as versões/navegadores.
 
 ### A-05 — Pré-carregamento do vídeo
 
