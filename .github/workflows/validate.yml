@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - publicacao-corrigida
+      - correcao-caminhos-assets
   pull_request:
     branches:
       - main
